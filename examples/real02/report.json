@@ -1,0 +1,248 @@
+{
+  "bag": "example02.recovered.bag",
+  "generated_beijing": "2026-11-05T11:59:33.459805+08:00",
+  "sha256_before": "4b66bd8eab76b0e7b323d28ef9421c454e0f9e5622c48ece04f4c37e9ae5ce3b",
+  "sha256_after": "4b66bd8eab76b0e7b323d28ef9421c454e0f9e5622c48ece04f4c37e9ae5ce3b",
+  "all_selected_checks_passed": true,
+  "parameters": {
+    "start_window_s": 5,
+    "end_window_s": 2,
+    "gap_factor": 5,
+    "accel_unit": "auto",
+    "imu_topic": "/livox/imu",
+    "lidar_topic": "/livox/lidar",
+    "pose_child": "aft_mapped"
+  },
+  "metrics": [
+    {
+      "id": "readable",
+      "类别": "文件结构",
+      "检验指标": "BAG能否完整读取",
+      "实测结果": "遍历消息 17,370 条；读取异常 0",
+      "通过": true
+    },
+    {
+      "id": "decode",
+      "类别": "文件结构",
+      "检验指标": "消息能否正确解码",
+      "实测结果": "解码失败 0 条",
+      "通过": true
+    },
+    {
+      "id": "counts",
+      "类别": "文件结构",
+      "检验指标": "实际消息数是否与索引一致",
+      "实测结果": "索引 17,370 条，实际 17,370 条",
+      "通过": true
+    },
+    {
+      "id": "topics",
+      "类别": "文件结构",
+      "检验指标": "必要话题是否存在",
+      "实测结果": "/livox/imu 有效解码 12,858 条；/livox/lidar 643 帧",
+      "通过": true
+    },
+    {
+      "id": "unchanged",
+      "类别": "文件保护",
+      "检验指标": "分析期间文件是否保持不变",
+      "实测结果": "分析前后SHA256一致",
+      "通过": true
+    },
+    {
+      "id": "time_forward",
+      "类别": "时间质量",
+      "检验指标": "传感器时间戳是否无回退",
+      "实测结果": "/livox/imu 回退 0 次；/livox/lidar 回退 0 次",
+      "通过": true
+    },
+    {
+      "id": "time_unique",
+      "类别": "时间质量",
+      "检验指标": "传感器时间戳是否无重复",
+      "实测结果": "/livox/imu 重复 0 次；/livox/lidar 重复 0 次",
+      "通过": true
+    },
+    {
+      "id": "time_gaps",
+      "类别": "时间质量",
+      "检验指标": "是否无明显采样缺口",
+      "实测结果": "/livox/imu 大间隔 0 次；/livox/lidar 大间隔 0 次",
+      "通过": true
+    },
+    {
+      "id": "imu_finite",
+      "类别": "数值质量",
+      "检验指标": "IMU加速度及角速度是否为有限值",
+      "实测结果": "加速度/角速度 NaN及Inf 0 个",
+      "通过": true
+    },
+    {
+      "id": "point_count",
+      "类别": "点云质量",
+      "检验指标": "Livox声明点数是否与实际一致",
+      "实测结果": "点数不符 0",
+      "通过": true
+    },
+    {
+      "id": "point_finite",
+      "类别": "点云质量",
+      "检验指标": "Livox XYZ坐标是否为有限值",
+      "实测结果": "XYZ非法数值 0",
+      "通过": true
+    },
+    {
+      "id": "nonempty",
+      "类别": "点云质量",
+      "检验指标": "是否无空点云",
+      "实测结果": "空点云 0",
+      "通过": true
+    },
+    {
+      "id": "start_static",
+      "类别": "静止候选段",
+      "检验指标": "首段是否支持近似静止",
+      "实测结果": "5秒窗口：联合支持近似静止，雷达IMU偏置与噪声仍需复核",
+      "通过": true
+    },
+    {
+      "id": "end_static",
+      "类别": "静止候选段",
+      "检验指标": "末段是否支持近似静止",
+      "实测结果": "2秒窗口：联合支持近似静止，雷达IMU偏置与噪声仍需复核",
+      "通过": true
+    },
+    {
+      "id": "trajectory",
+      "类别": "轨迹分析",
+      "检验指标": "能否计算轨迹内部指标",
+      "实测结果": "轨迹 643 条，64.203 秒，折线路径 34.612 米",
+      "通过": true
+    },
+    {
+      "id": "closure",
+      "类别": "轨迹分析",
+      "检验指标": "能否计算条件性闭合残差",
+      "实测结果": "平均位置差 0.559 mm；姿态差 0.3026°；首尾近似静止均支持",
+      "通过": true
+    }
+  ],
+  "topic_counts": {
+    "/rosout": 11,
+    "/livox/imu": 12858,
+    "/livox/lidar": 643,
+    "/tf": 643,
+    "/map_path": 1286,
+    "/map_scan": 643,
+    "/chatter_LD360": 643,
+    "/map_cmap": 643
+  },
+  "expected_counts": {
+    "/rosout": 11,
+    "/livox/imu": 12858,
+    "/livox/lidar": 643,
+    "/tf": 643,
+    "/map_path": 1286,
+    "/map_scan": 643,
+    "/chatter_LD360": 643,
+    "/map_cmap": 643
+  },
+  "decode_errors": {},
+  "sensor_counters": {
+    "imu_checked": 12858,
+    "imu_nonfinite": 0,
+    "lidar_checked": 643,
+    "point_mismatch": 0,
+    "empty_clouds": 0,
+    "xyz_nonfinite": 0
+  },
+  "time_statistics": {
+    "/livox/imu": {
+      "samples": 12858,
+      "backwards": 0,
+      "duplicates": 0,
+      "duration_s": 64.28422403335571,
+      "median_rate_hz": 203.993190992656,
+      "max_gap_s": 0.007472991943359375,
+      "large_gaps": 0,
+      "enough_samples": true
+    },
+    "/livox/lidar": {
+      "samples": 643,
+      "backwards": 0,
+      "duplicates": 0,
+      "duration_s": 64.20036125183105,
+      "median_rate_hz": 10.003002591195658,
+      "max_gap_s": 0.1014559268951416,
+      "large_gaps": 0,
+      "enough_samples": true
+    }
+  },
+  "details": {
+    "trajectory": {
+      "samples": 643,
+      "duration_s": 64.2031033039093,
+      "path_length_m": 34.61240346250254,
+      "parent_frames": [
+        "camera_init"
+      ]
+    },
+    "acceleration": {
+      "setting": "auto",
+      "raw_median_norm": 1.0006061506350727,
+      "scale_to_m_s2": 9.80665
+    },
+    "start_static": {
+      "imu_samples": 1000,
+      "pose_samples": 50,
+      "coverage_fraction": 0.9806149959564209,
+      "gyro_mean_xyz_rad_s": [
+        -0.003239176619797945,
+        -0.002339316657744348,
+        -0.053567557375878094
+      ],
+      "raw_gyro_norm_p95_rad_s": 0.062104831057498165,
+      "raw_accel_residual_rms_m_s2": 0.5273541200402989,
+      "demeaned_gyro_norm_p95_rad_s": 0.027610973276143567,
+      "smoothed_accel_residual_rms_m_s2": 0.01026407583274617,
+      "speed_p95_m_s": 0.013066126648921327,
+      "position_radius_p95_m": 0.0019849099186854944,
+      "pose_angle_p95_deg": 0.02886066176530874,
+      "passed": true,
+      "reason": "联合支持近似静止，雷达IMU偏置与噪声仍需复核"
+    },
+    "end_static": {
+      "imu_samples": 401,
+      "pose_samples": 20,
+      "coverage_fraction": 0.9502166509628296,
+      "gyro_mean_xyz_rad_s": [
+        -0.0021439014453245816,
+        -0.0024572926715127844,
+        -0.05374340567171128
+      ],
+      "raw_gyro_norm_p95_rad_s": 0.06323926373370928,
+      "raw_accel_residual_rms_m_s2": 0.5655304811568732,
+      "demeaned_gyro_norm_p95_rad_s": 0.02881465210884142,
+      "smoothed_accel_residual_rms_m_s2": 0.009840181500692506,
+      "speed_p95_m_s": 0.01209064158202988,
+      "position_radius_p95_m": 0.002111657880510913,
+      "pose_angle_p95_deg": 0.05653776544600365,
+      "passed": true,
+      "reason": "联合支持近似静止，雷达IMU偏置与噪声仍需复核"
+    },
+    "endpoint_residual": {
+      "delta_xyz_m": [
+        -0.00041420508897606345,
+        4.9939366126899344e-05,
+        0.0003722270319582062
+      ],
+      "distance_m": 0.0005591178403013453,
+      "rotation_deg": 0.30263762616394385,
+      "start_samples": 50,
+      "end_samples": 20,
+      "start_spread_rms_m": 0.0010622264181973375,
+      "end_spread_rms_m": 0.0012628133141808274
+    }
+  },
+  "errors": []
+}

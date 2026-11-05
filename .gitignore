@@ -1,0 +1,13 @@
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+bag_checks/
+results/
+*.bag
+*.bag.active
+*.bin
+*.rlog
+*.tlog
+*.npz
+*.rejected
