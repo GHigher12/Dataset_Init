@@ -2,7 +2,7 @@
 
 检验 ROS1 `.bag` 或 ROS2 bag 数据集的文件结构、消息解码、时间连续性、IMU/点云质量、首尾静止候选段及轨迹内部一致性。增加 `--ros-version 2` 即可选择 ROS2，默认 `--ros-version 1`，原来的 ROS1 命令不用修改。终端打印对齐的中文表格，并输出 Markdown、CSV、JSON；绘图脚本生成中文检验表和运动概览。
 
-无需安装 ROS、无需飞控 BIN/RLOG/TLOG、无需 GPU。分析过程只读 BAG，不自动修复或覆盖输入文件。仓库只提供程序、合成测试与示例结果，不包含原始数据集。
+无需安装 ROS、无需飞控 BIN/RLOG/TLOG、无需 GPU。检验过程只读 BAG；修复通过单独的 `repair_ros1_bag.py` 显式运行，另存副本。仓库只提供程序、合成测试与示例结果，不包含原始数据集。
 
 [查看 Markdown 示例检验表](#示例检验表) · [查看运动分析图](examples/real02/charts/motion_summary.png)
 
@@ -210,7 +210,7 @@ Linux/macOS 可以使用本机的 Noto Sans CJK 等中文字体，`--font` 同�
 ## 5. 运行测试
 
 ```powershell
-.\.venv\Scripts\python.exe -X utf8 -m unittest -v test_check_bag_dataset.py test_ros2_bag.py
+.\.venv\Scripts\python.exe -X utf8 -m unittest -v test_check_bag_dataset.py test_ros2_bag.py test_repair_ros1_bag.py
 ```
 
 四项合成 BAG 测试覆盖：正常样例 16 项均通过；非法 IMU/点云数值、点数不符及时间回退被检出；缺少数据不被误判为通过；截断文件仍生成失败表格。测试自行生成临时 BAG，不需要下载数据集。
@@ -219,9 +219,31 @@ Linux/macOS 可以使用本机的 Noto Sans CJK 等中文字体，`--font` 同�
 
 实现参考：[Rosbags rosbag2文档](https://ternaris.gitlab.io/rosbags/topics/rosbag2.html)、[消息类型系统](https://ternaris.gitlab.io/rosbags/topics/typesys.html)。
 
+### ROS1缺索引与尾部截断修复
+
+```powershell
+# 指定的是新的输出BAG路径，不是输出目录
+.\.venv\Scripts\python.exe -X utf8 repair_ros1_bag.py --bag "E:\Datasets\broken.bag" --output "D:\Recovered\fixed.bag"
+
+# 然后检验恢复副本
+.\.venv\Scripts\python.exe -X utf8 check_bag_dataset.py --bag "D:\Recovered\fixed.bag"
+```
+
+只支持ROS1 V2.0，不修复ROS2。未传 `--output` 时自动另存到脚本旁 `repaired_bags/原文件名.时间戳.recovered.bag`；禁止覆盖原文件、已有输出、临时文件或报告。
+
+程序逐块扫描，保留可定位的完整消息及原录制时间戳，用rosbags Writer重新打包并写入索引。支持完整的none/bz2/lz4数据块；无压缩的截断块可继续抢救完整前缀消息；无法解压的压缩块跳过，记录头损坏时停止当前扫描范围，不声称能修复任意损坏。原文件保留残片，不填零、不插值、不补造数据。
+
+输出包含恢复副本、同名 `.recovery.json` 和 `.recovery.md` 中文报告，记录：各话题恢复数量、时间跨度、异常偏移、截断声明长度/可用长度、未处理字节、原文件前后SHA256，以及原消息内容/类型/MD5/时间戳/数量的无序指纹核验。临时 `.partial.bag` 只有在完整重新读取、指纹核对和原件哈希核对成功后才改为正式文件；失败时保留临时副本及失败报告供检查。
+
+`--max-record-mb` 默认为256，限制单条原始记录声明字节数，遇到超限会记录并停止该扫描范围；合法超大记录可按内存情况提高。此限制不是压缩数据解压后的总内存上限。
+
+修复退出码0表示成功生成并核对副本（可能有数据损失，必须阅读报告）；2表示执行/核验失败。恢复成功不代表原始采集完整，也不代表所有载荷都已按消息定义正确解码，仍应运行检验脚本。
+
+另有4项恢复测试覆盖缺索引、none/bz2/lz4完整块、截断块只保留完整消息、禁止覆盖和错误文件头；现共16项测试。
+
 ## 6. 常见问题与结果边界
 
-- **`Bag is not indexed`**：输入 BAG 缺少索引，脚本会输出 False；应先对副本重建索引/抢救数据，再检查恢复副本。本仓库不提供自动修复功能，重命名不能修复文件。
+- **`Bag is not indexed`**：输入 BAG 缺少索引，检验脚本会输出 False；可用独立的 `repair_ros1_bag.py` 另存恢复副本，再检查副本。检验脚本不会自动修复，重命名也不能修复文件。
 - **没有轨迹相关结果**：检查是否有 `/tf`，其子坐标系是否与 `--pose-child` 一致。其他轨迹消息类型（如 nav_msgs/Odometry）暂不解析。轨迹缺失不妨碍读取/解码项目独立判断。
 - **首尾静止为 False**：候选窗口可能混有移动或转动，也可能是传感器噪声、单位配置或位姿覆盖不足。检查 JSON 原始统计后调整窗口，避免只为获得 True 放宽条件。
 - **目录已存在**：换一个 `--output`，或者省略此参数使用自动时间戳目录。

@@ -4,6 +4,7 @@ __pycache__/
 venv/
 bag_checks/
 results/
+repaired_bags/
 *.bag
 *.bag.active
 *.db3

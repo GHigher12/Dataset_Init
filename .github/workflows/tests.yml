@@ -13,4 +13,4 @@ jobs:
         with:
           python-version: ${{ matrix.python }}
       - run: python -m pip install -r requirements.txt
-      - run: python -m unittest -v test_check_bag_dataset.py test_ros2_bag.py
+      - run: python -m unittest -v test_check_bag_dataset.py test_ros2_bag.py test_repair_ros1_bag.py
