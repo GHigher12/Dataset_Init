@@ -1,6 +1,6 @@
-# Dataset_Init：ROS1 BAG 数据集检验
+# Dataset_Init：ROS1 / ROS2 bag 数据集检验
 
-只读取一个 ROS1 `.bag`，检验文件结构、消息解码、时间连续性、IMU/点云质量、首尾静止候选段及轨迹内部一致性。终端打印对齐的中文表格，并输出 Markdown、CSV、JSON；绘图脚本生成中文检验表和运动概览。
+检验 ROS1 `.bag` 或 ROS2 bag 数据集的文件结构、消息解码、时间连续性、IMU/点云质量、首尾静止候选段及轨迹内部一致性。增加 `--ros-version 2` 即可选择 ROS2，默认 `--ros-version 1`，原来的 ROS1 命令不用修改。终端打印对齐的中文表格，并输出 Markdown、CSV、JSON；绘图脚本生成中文检验表和运动概览。
 
 无需安装 ROS、无需飞控 BIN/RLOG/TLOG、无需 GPU。分析过程只读 BAG，不自动修复或覆盖输入文件。仓库只提供程序、合成测试与示例结果，不包含原始数据集。
 
@@ -46,23 +46,52 @@ python3 -m venv .venv
 
 Linux/macOS 使用同样参数，将解释器换为 `.venv/bin/python`，路径换成本机路径；可将命令写成一行。
 
-`--bag` 是文件路径，不是目录。输出目录必须不存在，避免覆盖历史结果；不指定 `--output` 时会自动新建 `bag_checks/时间戳`。大点云 BAG 会全量解码，需要等待“完成”提示。
+默认ROS1模式下，`--bag` 是文件路径。ROS2模式下也接受录制目录，详见下节。输出目录必须不存在，避免覆盖历史结果；不指定 `--output` 时会自动新建 `bag_checks/时间戳`。大点云 BAG 会全量解码，需要等待“完成”提示。
+
+### ROS1 / ROS2 版本选择
+
+```powershell
+# ROS1：默认版本，保持原用法
+.\.venv\Scripts\python.exe -X utf8 check_bag_dataset.py --bag "E:\Datasets\test02.bag"
+
+# ROS2：推荐传入整个录制目录（metadata.yaml与所有分片）
+.\.venv\Scripts\python.exe -X utf8 check_bag_dataset.py --ros-version 2 --bag "E:\Datasets\ros2_test02" --ros-distro humble --imu-topic /imu --lidar-topic /points --pose-child base_link
+
+# ROS2：也可只检查一个存储文件；这不覆盖目录中其他分片
+.\.venv\Scripts\python.exe -X utf8 check_bag_dataset.py --ros-version 2 --bag "E:\Datasets\ros2_test02\ros2_test02_0.db3"
+.\.venv\Scripts\python.exe -X utf8 check_bag_dataset.py --ros-version 2 --bag "E:\Datasets\ros2_test02\ros2_test02_0.mcap"
+```
+
+ROS1 的 `--bag` 传文件；ROS2 可以传目录或单个 `.db3` / `.mcap` 文件。目录模式支持 rosbag2 的 SQLite3、MCAP、metadata.yaml 中列出的分片以及 zstd 文件压缩。输出目录必须位于输入目录之外，否则会改变被校验的数据，脚本会拒绝执行。请在录制结束后检查固定的数据副本。
+
+ROS2 不需要安装 ROS2 运行环境。消息 CDR 解码使用 BAG 内嵌定义；缺少定义时按 `--ros-distro` 选择标准消息类型，默认 humble。该参数不是存储格式转换，也不是话题名称自动配置；请按实际录制设置话题和TF子坐标系。
+
+较早版本的 SQLite3 bag 可能没有内嵌自定义消息定义。可重复传入 `--msg-def` 补充完整类型和依赖：
+
+```powershell
+.\.venv\Scripts\python.exe -X utf8 check_bag_dataset.py --ros-version 2 --bag "E:\Datasets\ros2_test02" --msg-def "livox_ros_driver2/msg/CustomPoint=E:\msg\CustomPoint.msg" --msg-def "livox_ros_driver2/msg/CustomMsg=E:\msg\CustomMsg.msg"
+```
+
+类型名、字段及依赖必须与采集时一致；缺失或错误的定义会使打开/解码检查失败，不会跳过后误判为通过。`--msg-def` 支持ROS `.msg` 文本，BAG内嵌的MSG/IDL由rosbags读取。单个压缩文件请通过完整录制目录检查。
 
 ### 参数
 
 | 参数 | 默认值 | 作用 |
 | --- | --- | --- |
-| `--bag` | 必填 | 一个 ROS1 BAG 文件 |
+| `--bag` | 必填 | ROS1 BAG 文件；ROS2 bag 目录或 `.db3` / `.mcap` 文件 |
+| `--ros-version` | `1` | `1` 选择 ROS1，`2` 选择 ROS2 |
+| `--ros-distro` | `humble` | ROS2缺少内嵌定义时的标准类型，支持dashing/eloquent/foxy/galactic/humble/iron/jazzy/kilted/lyrical |
+| `--msg-def` | 不提供 | ROS2补充消息定义，`package/msg/Type=文件.msg`；可重复传入依赖 |
 | `--output` | `bag_checks/时间戳` | 新建结果目录 |
 | `--start-window` | `5` | 首段候选窗口，秒，至少 1 秒 |
 | `--end-window` | `2` | 末段候选窗口，秒，至少 1 秒 |
 | `--gap-factor` | `5` | 采样大间隔阈值：正时间间隔中位数的倍数，必须大于 1 |
 | `--accel-unit` | `auto` | `auto`、`g` 或 `mps2`，表示 IMU 原始加速度单位 |
 | `--imu-topic` | `/livox/imu` | `sensor_msgs/Imu` 话题 |
-| `--lidar-topic` | `/livox/lidar` | Livox `CustomMsg` 话题 |
+| `--lidar-topic` | `/livox/lidar` | Livox `CustomMsg` 或 `sensor_msgs/PointCloud2` 话题 |
 | `--pose-child` | `aft_mapped` | `/tf` 中用于提取轨迹的子坐标系，忽略名称开头的 `/` |
 
-`auto` 模式下，加速度模中位数在 0.5～2 时暂按 g 乘 9.80665，否则暂按 m/s²。这个推断不是单位标定，建议核对驱动后显式指定。当前点云检查针对含 `header`、`point_num`、`points[].x/y/z` 的 Livox CustomMsg；普通 PointCloud2 不属于本脚本的 Livox 点数/XYZ 检查范围。自定义消息定义从 BAG 内读取。
+`auto` 模式下，加速度模中位数在 0.5～2 时暂按 g 乘 9.80665，否则暂按 m/s²。这个推断不是单位标定，建议核对驱动后显式指定。点云支持含 `header`、`point_num`、`points[].x/y/z` 的 Livox CustomMsg，以及具有单值XYZ字段的 PointCloud2；后者会检查字节布局、字段偏移、大小端、行填充和全部XYZ有限值。
 
 ## 3. 检验哪些指标
 
@@ -74,13 +103,13 @@ Linux/macOS 使用同样参数，将解释器换为 `.venv/bin/python`，路径�
 | 2 | 文件结构 | 消息能否正确解码 | 全量读取完成，所有消息解码失败数为 0 |
 | 3 | 文件结构 | 实际消息数是否与索引一致 | 按话题比较索引数与实际读取数 |
 | 4 | 文件结构 | 必要话题是否存在 | 配置的 IMU 和 Livox 点云话题都能解码到对应类型的消息 |
-| 5 | 文件保护 | 分析期间文件是否保持不变 | 分析前后整份文件 SHA256 一致 |
+| 5 | 文件保护 | 分析期间文件是否保持不变 | ROS1/ROS2单文件的SHA256一致；ROS2目录的文件名及全部文件SHA256清单指纹一致 |
 | 6 | 时间质量 | 传感器时间戳是否无回退 | IMU 与点云消息头时间回退次数均为 0 |
 | 7 | 时间质量 | 传感器时间戳是否无重复 | 两个传感器重复时间戳次数均为 0 |
 | 8 | 时间质量 | 是否无明显采样缺口 | 两个传感器超过中位正时间间隔 × gap-factor 的次数均为 0 |
 | 9 | 数值质量 | IMU 加速度及角速度是否有限 | NaN、Inf 总数为 0 |
-| 10 | 点云质量 | Livox 声明点数是否与实际一致 | `point_num == len(points)` 的不符次数为 0 |
-| 11 | 点云质量 | Livox XYZ 坐标是否有限 | 全部点的 XYZ 中 NaN、Inf 总数为 0 |
+| 10 | 点云质量 | 点云声明点数或布局是否一致 | CustomMsg要求`point_num == len(points)`；PointCloud2要求width/height/row_step/point_step及数据长度、XYZ字段布局一致 |
+| 11 | 点云质量 | 点云 XYZ 坐标是否有限 | 全部点的 XYZ 中 NaN、Inf 总数为 0 |
 | 12 | 点云质量 | 是否无空点云 | 空点云帧数为 0 |
 | 13 | 静止候选段 | 首段是否支持近似静止 | IMU 低动态诊断和位姿变化联合筛查，详见下方阈值 |
 | 14 | 静止候选段 | 末段是否支持近似静止 | 同上，使用末尾 end-window 秒 |
@@ -181,10 +210,14 @@ Linux/macOS 可以使用本机的 Noto Sans CJK 等中文字体，`--font` 同�
 ## 5. 运行测试
 
 ```powershell
-.\.venv\Scripts\python.exe -X utf8 -m unittest -v test_check_bag_dataset.py
+.\.venv\Scripts\python.exe -X utf8 -m unittest -v test_check_bag_dataset.py test_ros2_bag.py
 ```
 
 四项合成 BAG 测试覆盖：正常样例 16 项均通过；非法 IMU/点云数值、点数不符及时间回退被检出；缺少数据不被误判为通过；截断文件仍生成失败表格。测试自行生成临时 BAG，不需要下载数据集。
+
+另有八项ROS2测试：SQLite3/MCAP目录和单文件、旧SQLite3自定义定义补充、zstd文件压缩目录、异常数值与时间回退、metadata引用分片缺失、版本选择与输出目录保护、PointCloud2 CDR完整数据以及PointCloud2大小端/行填充/错误布局。共12项测试，本地通过；ROS2测试均使用合成CDR数据，不代表已经检查了你的实际ROS2数据集。
+
+实现参考：[Rosbags rosbag2文档](https://ternaris.gitlab.io/rosbags/topics/rosbag2.html)、[消息类型系统](https://ternaris.gitlab.io/rosbags/topics/typesys.html)。
 
 ## 6. 常见问题与结果边界
 

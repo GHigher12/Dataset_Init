@@ -1,4 +1,4 @@
-"""仅检验ROS1 BAG的16项指标；中文Markdown/CSV表格，结果为True或False。"""
+"""检验ROS1/ROS2 bag的16项指标；--ros-version默认1，输出中文True/False表格。"""
 import argparse
 from collections import Counter, defaultdict
 from datetime import datetime, timedelta, timezone
@@ -21,8 +21,8 @@ ITEMS = [
     ('time_unique','时间质量','传感器时间戳是否无重复'),
     ('time_gaps','时间质量','是否无明显采样缺口'),
     ('imu_finite','数值质量','IMU加速度及角速度是否为有限值'),
-    ('point_count','点云质量','Livox声明点数是否与实际一致'),
-    ('point_finite','点云质量','Livox XYZ坐标是否为有限值'),
+    ('point_count','点云质量','点云声明点数或布局是否一致'),
+    ('point_finite','点云质量','点云XYZ坐标是否为有限值'),
     ('nonempty','点云质量','是否无空点云'),
     ('start_static','静止候选段','首段是否支持近似静止'),
     ('end_static','静止候选段','末段是否支持近似静止'),
@@ -84,6 +84,35 @@ def digest(path):
     return h.hexdigest()
 
 
+def input_snapshot(path):
+    """Directory fingerprint includes file names and every file's content."""
+    if path.is_file():
+        value=digest(path)
+        return value,{path.name:value}
+    files={p.relative_to(path).as_posix():digest(p) for p in sorted(path.rglob('*')) if p.is_file()}
+    encoded=json.dumps(files,sort_keys=True,ensure_ascii=False).encode('utf-8')
+    return hashlib.sha256(encoded).hexdigest(),files
+
+
+def pointcloud2_xyz(msg):
+    """Check byte layout and expose XYZ with row padding and endian preserved."""
+    if msg.height<0 or msg.width<0 or msg.point_step<=0 or msg.row_step<msg.width*msg.point_step or len(msg.data)!=msg.row_step*msg.height:
+        raise ValueError('PointCloud2字节长度/行宽/点步长不一致')
+    formats={1:'i1',2:'u1',3:'i2',4:'u2',5:'i4',6:'u4',7:'f4',8:'f8'}
+    fields={f.name:f for f in msg.fields}
+    xyz=[]
+    for name in ('x','y','z'):
+        f=fields.get(name)
+        if f is None or f.count!=1 or f.datatype not in formats:
+            raise ValueError('PointCloud2缺少支持的单值XYZ字段')
+        dtype=np.dtype(('>' if msg.is_bigendian else '<')+formats[f.datatype])
+        if f.offset<0 or f.offset+dtype.itemsize>msg.point_step: raise ValueError('PointCloud2字段偏移超出点步长')
+        if msg.width*msg.height==0: xyz.append(np.empty((msg.height,msg.width))); continue
+        xyz.append(np.ndarray((msg.height,msg.width),dtype=dtype,buffer=msg.data,
+                              offset=f.offset,strides=(msg.row_step,msg.point_step)))
+    return xyz
+
+
 def stamp(t):
     return t.sec+t.nanosec/1e9
 
@@ -142,18 +171,37 @@ def quiet_window(imu,pose,start,end,scale,gap_factor):
 
 
 def check(bag,output,start_window=5.,end_window=2.,gap_factor=5.,accel_unit='auto',
-          imu_topic='/livox/imu',lidar_topic='/livox/lidar',pose_child='aft_mapped'):
+          imu_topic='/livox/imu',lidar_topic='/livox/lidar',pose_child='aft_mapped',
+          ros_version=1,ros_distro='humble',msg_defs=None):
     from rosbags.highlevel import AnyReader
-    bag=Path(bag).resolve(); output=Path(output).resolve(); output.mkdir(parents=True,exist_ok=False)
+    bag=Path(bag).resolve(); output=Path(output).resolve()
+    if ros_version not in (1,2): raise ValueError('ros_version只能为1或2')
+    if not bag.exists(): raise ValueError('输入路径不存在')
+    if bag.is_dir() and output.is_relative_to(bag): raise ValueError('输出目录不能位于ROS2输入目录内，否则会改变被检验数据')
+    output.mkdir(parents=True,exist_ok=False)
     details={}; errors=[]; values={key:(False,'未实施或证据不足') for key,_,_ in ITEMS}
     def result(key,passed,text): values[key]=(bool(passed),text)
-    before=digest(bag)
+    before,before_files=input_snapshot(bag)
     expected,counts,decode_errors=Counter(),Counter(),Counter()
     times=defaultdict(list); imu=[]; pose=[]; parent_frames=set()
     measured=Counter(); loaded=False; metadata=False
-    print('仅BAG：全量读取与解码',bag,flush=True)
+    print(f'ROS{ros_version} BAG：全量读取与解码',bag,flush=True)
     try:
-        with AnyReader([bag]) as reader:
+        if ros_version==1 and (not bag.is_file() or bag.suffix.lower()!='.bag'):
+            raise ValueError('ROS1模式需要.bag文件；ROS2请增加 --ros-version 2')
+        if ros_version==2 and bag.suffix.lower()=='.bag' and bag.is_file():
+            raise ValueError('ROS2模式不接受ROS1 .bag文件')
+        typestore=None
+        if ros_version==2:
+            from rosbags.typesys import Stores, get_typestore, get_types_from_msg
+            typestore=get_typestore(Stores('ros2_'+ros_distro))
+            definitions={}
+            for spec in msg_defs or []:
+                typename,filename=spec.split('=',1)
+                definitions.update(get_types_from_msg(Path(filename).read_text(encoding='utf-8'),typename))
+            if definitions: typestore.register(definitions)
+        with AnyReader([bag],default_typestore=typestore) as reader:
+            if ros_version==2 and definitions: reader.typestore.register(definitions)
             for c in reader.connections: expected[c.topic]+=c.msgcount
             metadata=True
             for c,_,raw in reader.messages():
@@ -177,6 +225,14 @@ def check(bag,output,start_window=5.,end_window=2.,gap_factor=5.,accel_unit='aut
                         if len(m.points):
                             xyz=np.asarray([[p.x,p.y,p.z] for p in m.points],dtype=float)
                             measured['xyz_nonfinite']+=int((~np.isfinite(xyz)).sum())
+                    elif c.topic==lidar_topic and c.msgtype.endswith('/PointCloud2'):
+                        times[c.topic].append(stamp(m.header.stamp)); measured['lidar_checked']+=1
+                        measured['empty_clouds']+=int(m.width*m.height==0)
+                        try: xyz=pointcloud2_xyz(m)
+                        except ValueError:
+                            measured['point_mismatch']+=1
+                            raise
+                        measured['xyz_nonfinite']+=sum(int((~np.isfinite(axis)).sum()) for axis in xyz)
                     elif c.topic=='/tf' and c.msgtype.endswith('/TFMessage'):
                         for tf in m.transforms:
                             if tf.child_frame_id.strip('/')!=pose_child.strip('/'): continue
@@ -229,23 +285,28 @@ def check(bag,output,start_window=5.,end_window=2.,gap_factor=5.,accel_unit='aut
                 'end_spread_rms_m':float(np.sqrt(np.mean(np.sum((b[:,1:4]-b[:,1:4].mean(0))**2,axis=1))))}
             supported=values['start_static'][0] and values['end_static'][0]
             result('closure',supported,f'平均位置差 {distance*1000:.3f} mm；姿态差 {rotation:.4f}°；'+('首尾近似静止均支持' if supported else '首尾静止条件未同时支持，仅为描述性位置差'))
-    after=digest(bag); result('unchanged',before==after,'分析前后SHA256'+('一致' if before==after else '不同'))
+    try: after,after_files=input_snapshot(bag)
+    except OSError as exc:
+        after,after_files=None,{}; errors.append(f'输入复核失败：{exc}')
+    result('unchanged',before==after,'分析前后SHA256'+('一致' if before==after else '不同'))
     if pose_ok:
         np.savetxt(output/'trajectory.csv',p,delimiter=',',header='time_s,x_m,y_m,z_m,qx,qy,qz,qw',comments='')
     if imu_ok:
         np.savetxt(output/'imu.csv',i,delimiter=',',header='time_s,ax_raw,ay_raw,az_raw,gx_rad_s,gy_rad_s,gz_rad_s',comments='')
     rows=[{'id':k,'类别':category,'检验指标':label,'实测结果':values[k][1],'通过':values[k][0]} for k,category,label in ITEMS]
-    report={'bag':str(bag),'generated_beijing':datetime.now(timezone(timedelta(hours=8))).isoformat(),
+    report={'bag':str(bag),'ros_version':ros_version,'input_files_before':before_files,'input_files_after':after_files,
+        'generated_beijing':datetime.now(timezone(timedelta(hours=8))).isoformat(),
         'sha256_before':before,'sha256_after':after,'all_selected_checks_passed':all(r['通过'] for r in rows),
         'parameters':{'start_window_s':start_window,'end_window_s':end_window,'gap_factor':gap_factor,
-                      'accel_unit':accel_unit,'imu_topic':imu_topic,'lidar_topic':lidar_topic,'pose_child':pose_child},
+                      'accel_unit':accel_unit,'imu_topic':imu_topic,'lidar_topic':lidar_topic,'pose_child':pose_child,
+                      'ros_version':ros_version,'ros_distro':ros_distro if ros_version==2 else None,'msg_defs':list(msg_defs or [])},
         'metrics':rows,'topic_counts':dict(counts),'expected_counts':dict(expected),'decode_errors':dict(decode_errors),
         'sensor_counters':dict(measured),'time_statistics':timeline,'details':details,'errors':errors}
     (output/'检验指标.json').write_text(json.dumps(report,ensure_ascii=False,indent=2,allow_nan=False),encoding='utf-8')
     with (output/'检验指标.csv').open('w',encoding='utf-8-sig',newline='') as f:
         writer=csv.DictWriter(f,fieldnames=['类别','检验指标','实测结果','通过']); writer.writeheader()
         writer.writerows({k:v for k,v in row.items() if k!='id'} for row in rows)
-    lines=['# BAG数据集16项检验','',f'输入：`{bag}`','',f'时间：{report["generated_beijing"]}','',
+    lines=['# BAG数据集16项检验','',f'输入：`{bag}`','',f'格式：ROS{ros_version}','',f'时间：{report["generated_beijing"]}','',
         '仅包含约定的16项指标。True表示该项通过；False表示未通过或证据不足，实际异常不隐藏。','',
         '| 类别 | 检验指标 | 实测结果 | 通过 |','| --- | --- | --- | --- |']
     lines += [f'| {r["类别"]} | {r["检验指标"]} | {r["实测结果"].replace(chr(10)," ").replace("|","/")} | {r["通过"]} |' for r in rows]
@@ -257,6 +318,8 @@ def check(bag,output,start_window=5.,end_window=2.,gap_factor=5.,accel_unit='aut
         '- auto加速度单位：原始加速度模中位数在0.5～2时暂按g换算，否则暂按m/s²；建议核对驱动后显式指定 --accel-unit。',
         '- “能否计算闭合残差”通过不代表残差达到验收标准。必须额外确认从同一物理位置出发返回、坐标系连续；雷达位姿与IMU可能非独立。',
         '- 缺少传感器/轨迹、样本不足或无法读取时，对应项为False，不把未检查当作通过。','']
+    if ros_version==2:
+        lines += ['ROS2说明：目录模式对目录内全部文件（包含metadata.yaml和分片）前后计算指纹；单文件模式只覆盖指定.db3/.mcap，不代表整个分片数据集。点云项同时支持Livox CustomMsg与PointCloud2，后者检查width/height/row_step/point_step布局及全部XYZ。','']
     if errors: lines += ['读取/分析异常：','']+['- '+e.replace('\n',' ') for e in errors]
     (output/'检验结果_中文.md').write_text('\n'.join(lines),encoding='utf-8')
     print('\n'+format_metric_table(rows)+'\n')
@@ -266,7 +329,10 @@ def check(bag,output,start_window=5.,end_window=2.,gap_factor=5.,accel_unit='aut
 
 def main():
     parser=argparse.ArgumentParser(description=__doc__)
-    parser.add_argument('--bag',required=True,type=Path,help='ROS1 BAG文件路径')
+    parser.add_argument('--bag',required=True,type=Path,help='ROS1 .bag文件，或ROS2 bag目录/.db3/.mcap文件')
+    parser.add_argument('--ros-version',type=int,choices=[1,2],default=1,help='选择ROS版本，默认1；ROS2请传2')
+    parser.add_argument('--ros-distro',default='humble',choices=['dashing','eloquent','foxy','galactic','humble','iron','jazzy','kilted','lyrical'],help='ROS2缺少内嵌定义时的标准消息类型，默认humble')
+    parser.add_argument('--msg-def',action='append',default=[],help='补充ROS2自定义定义：package/msg/Type=文件.msg，可重复，依赖也需提供')
     parser.add_argument('--output',type=Path,default=Path(__file__).resolve().parent/'bag_checks'/datetime.now(timezone(timedelta(hours=8))).strftime('%Y%m%d_%H%M%S'),help='新建输出目录，必须不存在')
     parser.add_argument('--start-window',type=float,default=5,help='首段窗口秒数，默认5')
     parser.add_argument('--end-window',type=float,default=2,help='末段窗口秒数，默认2')
@@ -276,10 +342,11 @@ def main():
     parser.add_argument('--lidar-topic',default='/livox/lidar')
     parser.add_argument('--pose-child',default='aft_mapped',help='/tf轨迹子坐标系')
     args=parser.parse_args()
-    if not args.bag.is_file(): parser.error('BAG文件不存在')
+    if not args.bag.exists(): parser.error('BAG文件或目录不存在')
+    if args.bag.is_dir() and args.output.resolve().is_relative_to(args.bag.resolve()): parser.error('输出目录不能位于ROS2输入目录内')
     if not all(np.isfinite(x) for x in (args.start_window,args.end_window,args.gap_factor)) or min(args.start_window,args.end_window)<1 or args.gap_factor<=1:
         parser.error('窗口必须为至少1秒的有限数，大间隔倍数必须为大于1的有限数')
-    r=check(args.bag,args.output,args.start_window,args.end_window,args.gap_factor,args.accel_unit,args.imu_topic,args.lidar_topic,args.pose_child)
+    r=check(args.bag,args.output,args.start_window,args.end_window,args.gap_factor,args.accel_unit,args.imu_topic,args.lidar_topic,args.pose_child,args.ros_version,args.ros_distro,args.msg_def)
     return 0 if r['all_selected_checks_passed'] else 1
 
 

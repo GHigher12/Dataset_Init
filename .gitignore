@@ -6,6 +6,12 @@ bag_checks/
 results/
 *.bag
 *.bag.active
+*.db3
+*.db3-*
+*.mcap
+*.db3.zstd
+*.mcap.zstd
+ros2_test_log.txt
 *.bin
 *.rlog
 *.tlog
